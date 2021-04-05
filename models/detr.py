@@ -16,11 +16,12 @@ from .matcher import build_matcher
 from .segmentation import (DETRsegm, PostProcessPanoptic, PostProcessSegm,
                            dice_loss, sigmoid_focal_loss)
 from .transformer import build_transformer
+from position_encoding import PositionalEncoding
 
 
 class DETR(nn.Module):
     """ This is the DETR module that performs object detection """
-    def __init__(self, backbone, transformer, num_classes, num_queries, aux_loss=False):
+    def __init__(self, backbone, transformer, num_classes, num_queries, latent_dim, aux_loss=False):
         """ Initializes the model.
         Parameters:
             backbone: torch module of the backbone to be used. See backbone.py
@@ -28,6 +29,7 @@ class DETR(nn.Module):
             num_classes: number of object classes
             num_queries: number of object queries, ie detection slot. This is the maximal number of objects
                          DETR can detect in a single image. For COCO, we recommend 100 queries.
+            latent_dim: size of latent dimension for the latent vector of each predicted part.
             aux_loss: True if auxiliary decoding losses (loss at each decoder layer) are to be used.
         """
         super().__init__()
@@ -35,38 +37,48 @@ class DETR(nn.Module):
         self.transformer = transformer
         hidden_dim = transformer.d_model
         self.class_embed = nn.Linear(hidden_dim, num_classes + 1)
-        self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
+        self.bbox_embed = MLP(hidden_dim, hidden_dim, 6, 3)
+        self.latent_embed = MLP(hidden_dim, hidden_dim, latent_dim, 3)
         self.query_embed = nn.Embedding(num_queries, hidden_dim)
         self.input_proj = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)
         self.backbone = backbone
         self.aux_loss = aux_loss
 
-    def forward(self, samples: NestedTensor):
-        """ The forward expects a NestedTensor, which consists of:
-               - samples.tensor: batched images, of shape [batch_size x 3 x H x W]
-               - samples.mask: a binary mask of shape [batch_size x H x W], containing 1 on padded pixels
+    def forward(self, src):
+        """ The forward directly takes the source sequence that represents the
+        input visual.
+
+        Args:
+            src (tensor): (num_queries, bs, backbone.num_channels) Source sequence.
 
             It returns a dict with the following elements:
                - "pred_logits": the classification logits (including no-object) for all queries.
                                 Shape= [batch_size x num_queries x (num_classes + 1)]
                - "pred_boxes": The normalized boxes coordinates for all queries, represented as
-                               (center_x, center_y, height, width). These values are normalized in [0, 1],
+                               (center_x, center_y, center_z, height, width, depth). These values are normalized in [0, 1],
                                relative to the size of each individual image (disregarding possible padding).
                                See PostProcess for information on how to retrieve the unnormalized bounding box.
+               - "pred_latent": Predicted latent vectors for each predicted part.
+                                Shape = [batch_size x num_queries x self.latent_dim]
                - "aux_outputs": Optional, only returned when auxilary losses are activated. It is a list of
                                 dictionnaries containing the two above keys for each decoder layer.
         """
-        if isinstance(samples, (list, torch.Tensor)):
-            samples = nested_tensor_from_tensor_list(samples)
-        features, pos = self.backbone(samples)
+        # if isinstance(samples, (list, torch.Tensor)):
+        #     samples = nested_tensor_from_tensor_list(samples)
+        # features, pos = self.backbone(samples)
 
-        src, mask = features[-1].decompose()
+        # src, mask = features[-1].decompose()
+        mask = torch.zeros_like(src)  # Do not mask anything
+        pos_enc = PositionalEncoding(self.transformer.d_model)
+        pos = pos_enc(src)
         assert mask is not None
-        hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])[0]
+        hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos)[0]
 
         outputs_class = self.class_embed(hs)
         outputs_coord = self.bbox_embed(hs).sigmoid()
-        out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}
+        # TODO: confirm shape here
+        outputs_latent = self.latent_embed(hs[-1])  # No need to auxiliary loss. Directly use hs[-1].
+        out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1], 'pred_latent': outputs_latent}
         if self.aux_loss:
             out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
         return out
