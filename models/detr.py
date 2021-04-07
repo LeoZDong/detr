@@ -6,22 +6,23 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from util import box_ops
-from util.misc import (NestedTensor, nested_tensor_from_tensor_list,
+import detr.util.box_ops as box_ops
+# from util import box_ops
+from detr.util.misc import (NestedTensor, nested_tensor_from_tensor_list,
                        accuracy, get_world_size, interpolate,
                        is_dist_avail_and_initialized)
 
-from .backbone import build_backbone
+# from .backbone import build_backbone
 from .matcher import build_matcher
-from .segmentation import (DETRsegm, PostProcessPanoptic, PostProcessSegm,
-                           dice_loss, sigmoid_focal_loss)
+# from .segmentation import (DETRsegm, PostProcessPanoptic, PostProcessSegm,
+#                            dice_loss, sigmoid_focal_loss)
 from .transformer import build_transformer
-from position_encoding import PositionalEncoding
+from .position_encoding import PositionalEncoding
 
 
 class DETR(nn.Module):
     """ This is the DETR module that performs object detection """
-    def __init__(self, transformer, num_classes, num_queries, latent_dim, aux_loss=False):
+    def __init__(self, transformer, num_classes, num_queries, latent_dim, num_channels=512, aux_loss=False):
         """ Initializes the model.
         Parameters:
             backbone: torch module of the backbone to be used. See backbone.py
@@ -40,7 +41,7 @@ class DETR(nn.Module):
         self.bbox_embed = MLP(self.hidden_dim, self.hidden_dim, 6, 3)
         self.latent_embed = MLP(self.hidden_dim, self.hidden_dim, latent_dim, 3)
         self.query_embed = nn.Embedding(num_queries, self.hidden_dim)
-        self.input_proj = nn.Conv2d(backbone.num_channels, self.hidden_dim, kernel_size=1)
+        self.input_proj = nn.Conv2d(num_channels, self.hidden_dim, kernel_size=1)
         self.aux_loss = aux_loss
 
     def forward(self, src):
@@ -307,7 +308,7 @@ class MLP(nn.Module):
         return x
 
 
-def build(args):
+def build(args, pdif_args):
     # the `num_classes` naming here is somewhat misleading.
     # it indeed corresponds to `max_obj_id + 1`, where max_obj_id
     # is the maximum id for a class in your dataset. For example,
@@ -323,8 +324,6 @@ def build(args):
         num_classes = 250
     device = torch.device(args.device)
 
-    backbone = build_backbone(args)
-
     transformer = build_transformer(args)
 
     model = DETR(
@@ -332,6 +331,7 @@ def build(args):
         num_classes=num_classes,
         num_queries=args.num_queries,
         aux_loss=args.aux_loss,
+        latent_dim=pdif_args.latent_dim
     )
     if args.masks:
         model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
