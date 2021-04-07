@@ -21,7 +21,7 @@ from position_encoding import PositionalEncoding
 
 class DETR(nn.Module):
     """ This is the DETR module that performs object detection """
-    def __init__(self, backbone, transformer, num_classes, num_queries, latent_dim, aux_loss=False):
+    def __init__(self, transformer, num_classes, num_queries, latent_dim, aux_loss=False):
         """ Initializes the model.
         Parameters:
             backbone: torch module of the backbone to be used. See backbone.py
@@ -35,13 +35,12 @@ class DETR(nn.Module):
         super().__init__()
         self.num_queries = num_queries
         self.transformer = transformer
-        hidden_dim = transformer.d_model
-        self.class_embed = nn.Linear(hidden_dim, num_classes + 1)
-        self.bbox_embed = MLP(hidden_dim, hidden_dim, 6, 3)
-        self.latent_embed = MLP(hidden_dim, hidden_dim, latent_dim, 3)
-        self.query_embed = nn.Embedding(num_queries, hidden_dim)
-        self.input_proj = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)
-        self.backbone = backbone
+        self.hidden_dim = transformer.d_model
+        self.class_embed = nn.Linear(self.hidden_dim, num_classes + 1)
+        self.bbox_embed = MLP(self.hidden_dim, self.hidden_dim, 6, 3)
+        self.latent_embed = MLP(self.hidden_dim, self.hidden_dim, latent_dim, 3)
+        self.query_embed = nn.Embedding(num_queries, self.hidden_dim)
+        self.input_proj = nn.Conv2d(backbone.num_channels, self.hidden_dim, kernel_size=1)
         self.aux_loss = aux_loss
 
     def forward(self, src):
@@ -63,11 +62,6 @@ class DETR(nn.Module):
                - "aux_outputs": Optional, only returned when auxilary losses are activated. It is a list of
                                 dictionnaries containing the two above keys for each decoder layer.
         """
-        # if isinstance(samples, (list, torch.Tensor)):
-        #     samples = nested_tensor_from_tensor_list(samples)
-        # features, pos = self.backbone(samples)
-
-        # src, mask = features[-1].decompose()
         mask = torch.zeros_like(src)  # Do not mask anything
         pos_enc = PositionalEncoding(self.transformer.d_model)
         pos = pos_enc(src)
@@ -334,7 +328,6 @@ def build(args):
     transformer = build_transformer(args)
 
     model = DETR(
-        backbone,
         transformer,
         num_classes=num_classes,
         num_queries=args.num_queries,

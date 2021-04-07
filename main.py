@@ -101,6 +101,20 @@ def get_args_parser():
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
     return parser
 
+def export_detr():
+    """Export DETR model with hyperparameters to be used as a submodule
+    elsewhere."""
+    # Parse default arguments
+    parser = argparse.ArgumentParser('DETR training and evaluation script', parents=[get_args_parser()])
+    args = parser.parse_args()
+
+    # Get model
+    device = torch.device(args.device)
+    model, criterion, postprocessors = build_model(args)
+    model.to(device)
+
+    out = {'args': args, 'model': model, 'criterion': criterion}
+    return out
 
 def main(args):
     utils.init_distributed_mode(args)
