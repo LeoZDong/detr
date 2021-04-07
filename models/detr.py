@@ -22,7 +22,7 @@ from .position_encoding import PositionalEncoding
 
 class DETR(nn.Module):
     """ This is the DETR module that performs object detection """
-    def __init__(self, transformer, num_classes, num_queries, latent_dim, num_channels=512, aux_loss=False):
+    def __init__(self, transformer, num_classes, num_queries, latent_dim, num_channels=256, aux_loss=False):
         """ Initializes the model.
         Parameters:
             backbone: torch module of the backbone to be used. See backbone.py
@@ -41,7 +41,7 @@ class DETR(nn.Module):
         self.bbox_embed = MLP(self.hidden_dim, self.hidden_dim, 6, 3)
         self.latent_embed = MLP(self.hidden_dim, self.hidden_dim, latent_dim, 3)
         self.query_embed = nn.Embedding(num_queries, self.hidden_dim)
-        self.input_proj = nn.Conv2d(num_channels, self.hidden_dim, kernel_size=1)
+        self.input_proj = nn.Conv1d(num_channels, self.hidden_dim, kernel_size=1)
         self.aux_loss = aux_loss
 
     def forward(self, src):
@@ -49,7 +49,7 @@ class DETR(nn.Module):
         input visual.
 
         Args:
-            src (tensor): (num_queries, bs, backbone.num_channels) Source sequence.
+            src (tensor): (bs, backbone.num_channels, num_queries) Source sequence.
 
             It returns a dict with the following elements:
                - "pred_logits": the classification logits (including no-object) for all queries.
@@ -63,17 +63,18 @@ class DETR(nn.Module):
                - "aux_outputs": Optional, only returned when auxilary losses are activated. It is a list of
                                 dictionnaries containing the two above keys for each decoder layer.
         """
-        mask = torch.zeros_like(src)  # Do not mask anything
+        mask = torch.zeros((src.shape[0], src.shape[2]), dtype=torch.bool).to(src.device)  # Do not mask anything
         pos_enc = PositionalEncoding(self.transformer.d_model)
         pos = pos_enc(src)
         assert mask is not None
+        import ipdb; ipdb.set_trace()
         hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos)[0]
 
         outputs_class = self.class_embed(hs)
         outputs_coord = self.bbox_embed(hs).sigmoid()
         # TODO: confirm shape here
         outputs_latent = self.latent_embed(hs[-1])  # No need to auxiliary loss. Directly use hs[-1].
-        out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1], 'pred_latent': outputs_latent}
+        out = {'pred_logits': outputs_class[-1], 'bbox': outputs_coord[-1], 'latent': outputs_latent}
         if self.aux_loss:
             out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
         return out
@@ -328,8 +329,9 @@ def build(args, pdif_args):
 
     model = DETR(
         transformer,
-        num_classes=num_classes,
-        num_queries=args.num_queries,
+        num_classes=3,
+        # num_queries=args.num_queries,
+        num_queries=pdif_args.max_seq_len,
         aux_loss=args.aux_loss,
         latent_dim=pdif_args.latent_dim
     )

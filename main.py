@@ -1,4 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+import sys, os
+sys.path.append(os.path.dirname(__file__))
+
 import argparse
 import datetime
 import json
@@ -10,9 +13,8 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, DistributedSampler
 
-import datasets
+# import datasets
 import util.misc as utils
-from datasets import build_dataset, get_coco_api_from_dataset
 from engine import evaluate, train_one_epoch
 from models import build_model
 
