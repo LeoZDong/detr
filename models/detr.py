@@ -67,14 +67,13 @@ class DETR(nn.Module):
         pos_enc = PositionalEncoding(self.transformer.d_model)
         pos = pos_enc(src)
         assert mask is not None
-        import ipdb; ipdb.set_trace()
         hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos)[0]
 
         outputs_class = self.class_embed(hs)
         outputs_coord = self.bbox_embed(hs).sigmoid()
         # TODO: confirm shape here
         outputs_latent = self.latent_embed(hs[-1])  # No need to auxiliary loss. Directly use hs[-1].
-        out = {'pred_logits': outputs_class[-1], 'bbox': outputs_coord[-1], 'latent': outputs_latent}
+        out = {'tokens': outputs_class[-1], 'bbox': outputs_coord[-1], 'latent': outputs_latent}
         if self.aux_loss:
             out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
         return out

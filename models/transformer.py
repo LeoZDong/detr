@@ -55,7 +55,6 @@ class Transformer(nn.Module):
         # mask = mask.flatten(1)
 
         tgt = torch.zeros_like(query_embed)
-        import ipdb; ipdb.set_trace()
         memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)
         hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
                           pos=pos_embed, query_pos=query_embed)
