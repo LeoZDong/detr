@@ -73,7 +73,7 @@ class DETR(nn.Module):
         outputs_coord = self.bbox_embed(hs).sigmoid()
         # TODO: confirm shape here
         outputs_latent = self.latent_embed(hs[-1])  # No need to auxiliary loss. Directly use hs[-1].
-        out = {'tokens': outputs_class[-1], 'bbox': outputs_coord[-1], 'latent': outputs_latent}
+        out = {'tokens_logits': outputs_class[-1], 'bbox': outputs_coord[-1], 'latent': outputs_latent}
         if self.aux_loss:
             out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
         return out
