@@ -36,6 +36,7 @@ class DETR(nn.Module):
         super().__init__()
         self.num_queries = num_queries
         self.transformer = transformer
+        self.transformer2 = nn.Transformer(transformer.d_model, transformer.nhead)
         self.hidden_dim = transformer.d_model
         self.class_embed = nn.Linear(self.hidden_dim, num_classes + 1)
         self.bbox_embed = MLP(self.hidden_dim, self.hidden_dim, 6, 3)
@@ -67,15 +68,24 @@ class DETR(nn.Module):
         pos_enc = PositionalEncoding(self.transformer.d_model)
         pos = pos_enc(src)
         assert mask is not None
-        hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos)[0]
+        # hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos)[0]
+        # import ipdb; ipdb.set_trace()
 
+        hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos)[0]
+        # src = src.permute(2, 0, 1)
+        # hs = self.transformer2(src + pos, torch.zeros_like(src)).permute(1, 0, 2)
+        # print('hidden 5 seq:', hs[0, :5, :])
         outputs_class = self.class_embed(hs)
         outputs_coord = self.bbox_embed(hs).sigmoid()
+        # outputs_coord = torch.clamp(self.bbox_embed(hs), min=0)
         # TODO: confirm shape here
-        outputs_latent = self.latent_embed(hs[-1])  # No need to auxiliary loss. Directly use hs[-1].
+        # outputs_latent = self.latent_embed(hs[-1])  # No need to auxiliary loss. Directly use hs[-1].
+        outputs_latent = self.latent_embed(hs[-1])
+        # out = {'tokens_logits': outputs_class[-1], 'bbox': outputs_coord[-1], 'latent': outputs_latent}
+        
         out = {'tokens_logits': outputs_class[-1], 'bbox': outputs_coord[-1], 'latent': outputs_latent}
-        if self.aux_loss:
-            out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
+        # if self.aux_loss:
+        #     out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
         return out
 
     @torch.jit.unused

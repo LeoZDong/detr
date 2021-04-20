@@ -43,6 +43,7 @@ class Transformer(nn.Module):
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
+                #nn.init.uniform_(p, a=0.0, b=1.0)
 
     def forward(self, src, mask, query_embed, pos_embed):
         # flatten NxCxHxW to HWxNxC
@@ -55,6 +56,7 @@ class Transformer(nn.Module):
         # mask = mask.flatten(1)
 
         tgt = torch.zeros_like(query_embed)
+        # import ipdb; ipdb.set_trace()
         memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)
         hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
                           pos=pos_embed, query_pos=query_embed)
@@ -106,6 +108,7 @@ class TransformerDecoder(nn.Module):
         intermediate = []
 
         for layer in self.layers:
+            # import ipdb; ipdb.set_trace()
             output = layer(output, memory, tgt_mask=tgt_mask,
                            memory_mask=memory_mask,
                            tgt_key_padding_mask=tgt_key_padding_mask,
