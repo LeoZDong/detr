@@ -36,7 +36,7 @@ class DETR(nn.Module):
         super().__init__()
         self.num_queries = num_queries
         self.transformer = transformer
-        self.transformer2 = nn.Transformer(transformer.d_model, transformer.nhead)
+        # self.transformer2 = nn.Transformer(transformer.d_model, transformer.nhead)
         self.hidden_dim = transformer.d_model
         self.class_embed = nn.Linear(self.hidden_dim, num_classes + 1)
         self.bbox_embed = MLP(self.hidden_dim, self.hidden_dim, 6, 3)
@@ -74,7 +74,6 @@ class DETR(nn.Module):
         hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos)[0]
         # src = src.permute(2, 0, 1)
         # hs = self.transformer2(src + pos, torch.zeros_like(src)).permute(1, 0, 2)
-        # print('hidden 5 seq:', hs[0, :5, :])
         outputs_class = self.class_embed(hs)
         outputs_coord = self.bbox_embed(hs).sigmoid()
         # outputs_coord = torch.clamp(self.bbox_embed(hs), min=0)
