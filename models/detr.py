@@ -22,11 +22,13 @@ from .position_encoding import PositionalEncoding
 
 class DETR(nn.Module):
     """ This is the DETR module that performs object detection """
-    def __init__(self, transformer, num_classes, num_queries, latent_dim, num_channels=256, aux_loss=False):
+    def __init__(self, transformer_outer, transformer_inner, num_classes, num_queries_out, num_queries_in, \
+                 latent_dim, num_channels=256, aux_loss=False):
         """ Initializes the model.
         Parameters:
             backbone: torch module of the backbone to be used. See backbone.py
-            transformer: torch module of the transformer architecture. See transformer.py
+            transformer_outer: outer transformer to handle block-level sequences. See transformer.py
+            transformer_inner: inner transformer to handle step-level sequences. See transformer.py
             num_classes: number of object classes
             num_queries: number of object queries, ie detection slot. This is the maximal number of objects
                          DETR can detect in a single image. For COCO, we recommend 100 queries.
@@ -34,18 +36,29 @@ class DETR(nn.Module):
             aux_loss: True if auxiliary decoding losses (loss at each decoder layer) are to be used.
         """
         super().__init__()
-        self.num_queries = num_queries
-        self.transformer = transformer
+        self.num_queries_out = num_queries_out
+        self.num_queries_in = num_queries_in
+        self.transformer_outer = transformer_outer
+        self.transformer_inner = transformer_inner
         # self.transformer2 = nn.Transformer(transformer.d_model, transformer.nhead)
         self.hidden_dim = transformer.d_model
         self.class_embed = nn.Linear(self.hidden_dim, num_classes + 1)
         self.bbox_embed = MLP(self.hidden_dim, self.hidden_dim, 6, 3)
         self.latent_embed = MLP(self.hidden_dim, self.hidden_dim, latent_dim, 3)
-        self.query_embed = nn.Embedding(num_queries, self.hidden_dim)
+        self.query_embed_outer = nn.Embedding(num_queries_out, self.hidden_dim)
+        self.query_embed_inner = nn.Embedding(num_queries_in, self.hidden_dim)
         self.input_proj = nn.Conv1d(num_channels, self.hidden_dim, kernel_size=1)
+
+        # Projects a 1 x d feature to num_queries_out x d sequence.
+        self.feat2seq = []
+        for i in range(self.num_queries_in):
+            net = nn.Linear(self.hidden_dim, self.hidden_dim)
+            self.feat2seq.append(net)
+        self.feat2seq = nn.ModuleList(self.feat2seq)
+
         self.aux_loss = aux_loss
 
-    def forward(self, src):
+    def forward(self, src_outer):
         """ The forward directly takes the source sequence that represents the
         input visual.
 
@@ -64,28 +77,40 @@ class DETR(nn.Module):
                - "aux_outputs": Optional, only returned when auxilary losses are activated. It is a list of
                                 dictionnaries containing the two above keys for each decoder layer.
         """
-        mask = torch.zeros((src.shape[0], src.shape[2]), dtype=torch.bool).to(src.device)  # Do not mask anything
-        pos_enc = PositionalEncoding(self.transformer.d_model)
-        pos = pos_enc(src)
+        import ipdb; ipdb.set_trace()
+        # Outer transformer
+        mask_outer = torch.zeros((src.shape[0], src.shape[2]), dtype=torch.bool).to(src.device)  # Do not mask anything
+        pos_enc_outer = PositionalEncoding(self.transformer_outer.d_model)
+        pos_outer = pos_enc(src_outer)
         assert mask is not None
-        # hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos)[0]
-        # import ipdb; ipdb.set_trace()
 
-        hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos)[0]
-        # src = src.permute(2, 0, 1)
-        # hs = self.transformer2(src + pos, torch.zeros_like(src)).permute(1, 0, 2)
-        outputs_class = self.class_embed(hs)
-        outputs_coord = self.bbox_embed(hs).sigmoid()
-        # outputs_coord = torch.clamp(self.bbox_embed(hs), min=0)
-        # TODO: confirm shape here
-        # outputs_latent = self.latent_embed(hs[-1])  # No need to auxiliary loss. Directly use hs[-1].
-        outputs_latent = self.latent_embed(hs[-1])
+        hs_outer = self.transformer_outer(self.input_proj(src_outer), mask_outer, self.query_embed_outer.weight, pos_outer)[0]
+        outputs_class = self.class_embed(hs_outer)
+        outputs_bbox_dim = self.bbox_embed(hs_outer).sigmoid()
+        outputs_latent = self.latent_embed(hs_outer[-1])  # No need to auxiliary loss. Directly use hs[-1].
+
+        # Inner transformer
+        mask_inner = torch.zeros((hs_outer[-1].shape[0], self.num_queries_in), dtype=torch.bool).to(hs_outer.device)
+        pos_enc_inner = PositionalEncoding(self.transformer_inner.d_model)
+        # pos_inner = pos_enc_inner()
+
+        hs_inner = []
+        for h_outer_i in hs_outer[-1]:  # TODO: check dimension loops through the sequence dimension
+            # Extract source sequence for inner transformer from outer transformer's hidden layer
+            src_inner = []
+            for i in range(self.num_queries_in):
+                src_inner.append(self.feat2seq[i](h_outer_i))
+            src_inner = torch.stack(src_inner, 2)
+            pos_inner = pos_enc_inner(src_inner)
+
+            # Pass through inner transformer
+            hs_inner_i = self.transformer_inner(src_inner, mask_inner, self.query_embed_inner.weight, pos_inner)[0][-1]
+            hs_inner.append(hs_inner_i)
+
         # out = {'tokens_logits': outputs_class[-1], 'bbox': outputs_coord[-1], 'latent': outputs_latent}
-        
-        out = {'tokens_logits': outputs_class[-1], 'bbox': outputs_coord[-1], 'latent': outputs_latent}
         # if self.aux_loss:
         #     out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
-        return out
+        # return out
 
     @torch.jit.unused
     def _set_aux_loss(self, outputs_class, outputs_coord):
@@ -333,13 +358,16 @@ def build(args, pdif_args):
         num_classes = 250
     device = torch.device(args.device)
 
-    transformer = build_transformer(args)
+    transformer_outer = build_transformer(args)
+    transformer_inner = build_transformer(args)
 
     model = DETR(
-        transformer,
-        num_classes=3,
+        transformer_outer,
+        transformer_inner,
+        num_classes,
         # num_queries=args.num_queries,
-        num_queries=pdif_args.max_seq_len,
+        num_queries_out=pdif_args.max_seq_len,
+        num_queries_in=pdif_args.max_block_len,
         aux_loss=args.aux_loss,
         latent_dim=pdif_args.latent_dim
     )
