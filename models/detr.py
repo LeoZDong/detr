@@ -36,23 +36,38 @@ class DETR(nn.Module):
             aux_loss: True if auxiliary decoding losses (loss at each decoder layer) are to be used.
         """
         super().__init__()
+        # Model parameters
         self.num_queries_out = num_queries_out
         self.num_queries_in = num_queries_in
+        
         self.transformer_outer = transformer_outer
         self.transformer_inner = transformer_inner
-        # self.transformer2 = nn.Transformer(transformer.d_model, transformer.nhead)
-        self.hidden_dim = transformer.d_model
-        self.class_embed = nn.Linear(self.hidden_dim, num_classes + 1)
-        self.bbox_embed = MLP(self.hidden_dim, self.hidden_dim, 6, 3)
-        self.latent_embed = MLP(self.hidden_dim, self.hidden_dim, latent_dim, 3)
-        self.query_embed_outer = nn.Embedding(num_queries_out, self.hidden_dim)
-        self.query_embed_inner = nn.Embedding(num_queries_in, self.hidden_dim)
-        self.input_proj = nn.Conv1d(num_channels, self.hidden_dim, kernel_size=1)
+        
+        self.hidden_dim_outer = transformer_outer.d_model
+        self.hidden_dim_inner = transformer_inner.d_model
 
-        # Projects a 1 x d feature to num_queries_out x d sequence.
+        # Embedding / projection layers for hidden states of transformer
+        # Embedding for outer transformer
+        self.bbox_dim_embed = MLP(self.hidden_dim_outer, self.hidden_dim_outer, 6, 3)
+        self.latent_embed = MLP(self.hidden_dim_outer, self.hidden_dim_outer, latent_dim, 3)
+        # Embedding for inner transformer
+        self.class_embed = nn.Linear(self.hidden_dim_inner, num_classes + 1)
+        # (currently only supports translation, so 3 dimensions)
+        self.bbox_trans_embed = MLP(self.hidden_dim_inner, self.hidden_dim_inner, 3, 3)
+
+        # Query embedding for transformer
+        self.query_embed_outer = nn.Embedding(num_queries_out, self.hidden_dim_outer)
+        self.query_embed_inner = nn.Embedding(num_queries_in, self.hidden_dim_inner)
+
+        # Input projection layers for transformer
+        self.input_proj_outer = nn.Conv1d(num_channels, self.hidden_dim_outer, kernel_size=1)
+        self.input_proj_inner = nn.Conv1d(num_channels, self.hidden_dim_inner, kernel_size=1)
+
+        # Projects a 1 x d feature to num_queries_in x d sequence
+        # Used to generate the source sequence of the inner transformer
         self.feat2seq = []
         for i in range(self.num_queries_in):
-            net = nn.Linear(self.hidden_dim, self.hidden_dim)
+            net = nn.Linear(self.hidden_dim_outer, self.hidden_dim_inner)
             self.feat2seq.append(net)
         self.feat2seq = nn.ModuleList(self.feat2seq)
 
@@ -77,40 +92,76 @@ class DETR(nn.Module):
                - "aux_outputs": Optional, only returned when auxilary losses are activated. It is a list of
                                 dictionnaries containing the two above keys for each decoder layer.
         """
-        import ipdb; ipdb.set_trace()
         # Outer transformer
-        mask_outer = torch.zeros((src.shape[0], src.shape[2]), dtype=torch.bool).to(src.device)  # Do not mask anything
+        mask_outer = torch.zeros((src_outer.shape[0], src_outer.shape[2]), dtype=torch.bool).to(src_outer.device)  # Do not mask anything
         pos_enc_outer = PositionalEncoding(self.transformer_outer.d_model)
-        pos_outer = pos_enc(src_outer)
-        assert mask is not None
+        pos_outer = pos_enc_outer(src_outer)
 
-        hs_outer = self.transformer_outer(self.input_proj(src_outer), mask_outer, self.query_embed_outer.weight, pos_outer)[0]
-        outputs_class = self.class_embed(hs_outer)
-        outputs_bbox_dim = self.bbox_embed(hs_outer).sigmoid()
-        outputs_latent = self.latent_embed(hs_outer[-1])  # No need to auxiliary loss. Directly use hs[-1].
+        # Disable auxilary loss; directly use last hidden layer
+        h_outer = self.transformer_outer(self.input_proj_outer(src_outer), mask_outer, self.query_embed_outer.weight, pos_outer)[0][-1]
+
+        # Embedding for outer transformer
+        outputs_bbox_dim = self.bbox_dim_embed(h_outer).sigmoid()
+        outputs_latent = self.latent_embed(h_outer)
 
         # Inner transformer
-        mask_inner = torch.zeros((hs_outer[-1].shape[0], self.num_queries_in), dtype=torch.bool).to(hs_outer.device)
+        mask_inner = torch.zeros((h_outer.shape[0], self.num_queries_in), dtype=torch.bool).to(h_outer.device)
         pos_enc_inner = PositionalEncoding(self.transformer_inner.d_model)
-        # pos_inner = pos_enc_inner()
 
-        hs_inner = []
-        for h_outer_i in hs_outer[-1]:  # TODO: check dimension loops through the sequence dimension
+        import ipdb; ipdb.set_trace()
+        h_inner = []
+        for i in range(self.num_queries_out):
             # Extract source sequence for inner transformer from outer transformer's hidden layer
+            h_outer_i = h_outer[:, i, :]
             src_inner = []
             for i in range(self.num_queries_in):
                 src_inner.append(self.feat2seq[i](h_outer_i))
-            src_inner = torch.stack(src_inner, 2)
+            
+            src_inner = torch.stack(src_inner, 2) # (bs, hidden_dim_inner, num_queries_in)
             pos_inner = pos_enc_inner(src_inner)
 
             # Pass through inner transformer
-            hs_inner_i = self.transformer_inner(src_inner, mask_inner, self.query_embed_inner.weight, pos_inner)[0][-1]
-            hs_inner.append(hs_inner_i)
+            h_inner_i = self.transformer_inner(self.input_proj_inner(src_inner), mask_inner, self.query_embed_inner.weight, pos_inner)[0][-1]
+            h_inner.append(h_inner_i)
 
+        import ipdb; ipdb.set_trace()
+        h_inner = torch.stack(h_inner, 1) # (bs, num_queries_out, num_queries_in, dim)
+
+        # Embedding for inner transformer
+        outputs_bbox_trans = self.bbox_trans_embed(h_inner).sigmoid() - 0.5 # (bs, num_queries_out, num_queries_in, 6)
+        outputs_class = self.class_embed(h_inner) # (bs, num_queries_out, num_queries_in, num_classes + 1)
+
+        # Postprocessing
+        out = self.postprocess(outputs_bbox_dim, outputs_latent, outputs_bbox_trans, outputs_class)
+        return out
+    
         # out = {'tokens_logits': outputs_class[-1], 'bbox': outputs_coord[-1], 'latent': outputs_latent}
         # if self.aux_loss:
         #     out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
         # return out
+
+    def postprocess(self, outputs_bbox_dim, outputs_latent, outputs_bbox_trans, outputs_class):
+        """ Postprocess the outputs of the double transformer.
+        
+        Args:
+            outputs_bbox_dim (tensor): (bs, num_queries_out, 6) Bounding box dimension for each block.
+            outputs_latent (tensor): (bs, num_queries_out, dim) Latent code of each block.
+            outputs_bbox_trans (tensor): (bs, num_queries_out, num_queries_in, 3) Bouding box translation for each step within a block.
+            outputs_class (tensor): (bs, num_queries_out, num_queries_in, num_classes + 1) Class prediction for each step within a block.
+                Currently, this serves as a present/absent binary classification.
+        """
+        # Apply step-wise transformation to predicted bounding box dimensions (TODO: make sure this stacking is alright without copy)
+        import ipdb; ipdb.set_trace()
+        outputs_bbox = torch.stack([outputs_bbox_dim] * self.num_queries_in, 2)
+        # Translation along x, y, z axes
+        outputs_bbox[:, :, :, :3] += outputs_bbox_trans
+
+        outputs_latent = torch.stack([outputs_latent] * self.num_queries_in, 2)
+
+        out = {'tokens_logits': outputs_class, 'bbox': outputs_bbox, 'latent': outputs_latent}
+        return out
+
+        
 
     @torch.jit.unused
     def _set_aux_loss(self, outputs_class, outputs_coord):
