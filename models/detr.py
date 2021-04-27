@@ -108,7 +108,6 @@ class DETR(nn.Module):
         mask_inner = torch.zeros((h_outer.shape[0], self.num_queries_in), dtype=torch.bool).to(h_outer.device)
         pos_enc_inner = PositionalEncoding(self.transformer_inner.d_model)
 
-        import ipdb; ipdb.set_trace()
         h_inner = []
         for i in range(self.num_queries_out):
             # Extract source sequence for inner transformer from outer transformer's hidden layer
@@ -124,7 +123,6 @@ class DETR(nn.Module):
             h_inner_i = self.transformer_inner(self.input_proj_inner(src_inner), mask_inner, self.query_embed_inner.weight, pos_inner)[0][-1]
             h_inner.append(h_inner_i)
 
-        import ipdb; ipdb.set_trace()
         h_inner = torch.stack(h_inner, 1) # (bs, num_queries_out, num_queries_in, dim)
 
         # Embedding for inner transformer
@@ -151,7 +149,6 @@ class DETR(nn.Module):
                 Currently, this serves as a present/absent binary classification.
         """
         # Apply step-wise transformation to predicted bounding box dimensions (TODO: make sure this stacking is alright without copy)
-        import ipdb; ipdb.set_trace()
         outputs_bbox = torch.stack([outputs_bbox_dim] * self.num_queries_in, 2)
         # Translation along x, y, z axes
         outputs_bbox[:, :, :, :3] += outputs_bbox_trans
@@ -415,7 +412,7 @@ def build(args, pdif_args):
     model = DETR(
         transformer_outer,
         transformer_inner,
-        num_classes,
+        num_classes=1,
         # num_queries=args.num_queries,
         num_queries_out=pdif_args.max_seq_len,
         num_queries_in=pdif_args.max_block_len,
