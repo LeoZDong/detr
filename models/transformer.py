@@ -43,18 +43,22 @@ class Transformer(nn.Module):
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
+                #nn.init.uniform_(p, a=0.0, b=1.0)
 
     def forward(self, src, mask, query_embed, pos_embed):
         # flatten NxCxHxW to HWxNxC
         # bs, c, h, w = src.shape
         # src = src.flatten(2).permute(2, 0, 1)
         # pos_embed = pos_embed.flatten(2).permute(2, 0, 1)
+        src = src.permute(2, 0, 1)
         seq_len, bs, c = src.shape
         query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1)
         # mask = mask.flatten(1)
 
         tgt = torch.zeros_like(query_embed)
+        # import ipdb; ipdb.set_trace()
         memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)
+        # import ipdb; ipdb.set_trace()
         hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
                           pos=pos_embed, query_pos=query_embed)
         return hs.transpose(1, 2), memory.permute(1, 2, 0)
@@ -75,6 +79,7 @@ class TransformerEncoder(nn.Module):
         output = src
 
         for layer in self.layers:
+            # import ipdb; ipdb.set_trace()
             output = layer(output, src_mask=mask,
                            src_key_padding_mask=src_key_padding_mask, pos=pos)
 
@@ -105,6 +110,7 @@ class TransformerDecoder(nn.Module):
         intermediate = []
 
         for layer in self.layers:
+            # import ipdb; ipdb.set_trace()
             output = layer(output, memory, tgt_mask=tgt_mask,
                            memory_mask=memory_mask,
                            tgt_key_padding_mask=tgt_key_padding_mask,

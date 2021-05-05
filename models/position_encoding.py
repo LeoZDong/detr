@@ -6,7 +6,7 @@ import math
 import torch
 from torch import nn
 
-from util.misc import NestedTensor
+from detr.util.misc import NestedTensor
 
 class PositionalEncoding(nn.Module):
     """Regular positional encoding module that returns the encoding.
@@ -26,12 +26,12 @@ class PositionalEncoding(nn.Module):
     def forward(self, x):
         """Returns positional encoding to input sequence
         Args:
-            x (tensor): (seq_len, bsz, d_model) Input sequence.
+            x (tensor): (bsz, d_model, seq_len) Input sequence.
         Returns:
-            (tensor): (seq_len, d_model) Input sequence added with
+            (tensor): (seq_len, 1, d_model) Input sequence added with
                 positional encoding.
         """
-        return self.pe[:x.size(0), :]
+        return self.pe[:x.size(2), :].to(x.device)
 
 
 class PositionEmbeddingSine(nn.Module):
