@@ -39,10 +39,10 @@ class DETR(nn.Module):
         # Model parameters
         self.num_queries_out = num_queries_out
         self.num_queries_in = num_queries_in
-        
+
         self.transformer_outer = transformer_outer
         self.transformer_inner = transformer_inner
-        
+
         self.hidden_dim_outer = transformer_outer.d_model
         self.hidden_dim_inner = transformer_inner.d_model
 
@@ -65,11 +65,16 @@ class DETR(nn.Module):
 
         # Projects a 1 x d feature to num_queries_in x d sequence
         # Used to generate the source sequence of the inner transformer
-        self.feat2seq = []
-        for i in range(self.num_queries_in):
-            net = nn.Linear(self.hidden_dim_outer, self.hidden_dim_inner)
-            self.feat2seq.append(net)
-        self.feat2seq = nn.ModuleList(self.feat2seq)
+        self.feat2seq_block = []
+        for i in range(self.num_queries_out):
+            feat2seq = []
+            for j in range(self.num_queries_in):
+                net = nn.Linear(self.hidden_dim_outer, self.hidden_dim_inner)
+                feat2seq.append(net)
+            feat2seq = nn.ModuleList(feat2seq)
+            self.feat2seq_block.append(feat2seq)
+
+        self.feat2seq_block = nn.ModuleList(self.feat2seq_block)
 
         self.aux_loss = aux_loss
 
@@ -113,9 +118,9 @@ class DETR(nn.Module):
             # Extract source sequence for inner transformer from outer transformer's hidden layer
             h_outer_i = h_outer[:, i, :]
             src_inner = []
-            for i in range(self.num_queries_in):
-                src_inner.append(self.feat2seq[i](h_outer_i))
-            
+            for j in range(self.num_queries_in):
+                src_inner.append(self.feat2seq[i][j](h_outer_i))
+
             src_inner = torch.stack(src_inner, 2) # (bs, hidden_dim_inner, num_queries_in)
             pos_inner = pos_enc_inner(src_inner)
 
@@ -132,7 +137,7 @@ class DETR(nn.Module):
         # Postprocessing
         out = self.postprocess(outputs_bbox_dim, outputs_latent, outputs_bbox_trans, outputs_class)
         return out
-    
+
         # out = {'tokens_logits': outputs_class[-1], 'bbox': outputs_coord[-1], 'latent': outputs_latent}
         # if self.aux_loss:
         #     out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
@@ -140,7 +145,7 @@ class DETR(nn.Module):
 
     def postprocess(self, outputs_bbox_dim, outputs_latent, outputs_bbox_trans, outputs_class):
         """ Postprocess the outputs of the double transformer.
-        
+
         Args:
             outputs_bbox_dim (tensor): (bs, num_queries_out, 6) Bounding box dimension for each block.
             outputs_latent (tensor): (bs, num_queries_out, dim) Latent code of each block.
@@ -158,7 +163,7 @@ class DETR(nn.Module):
         out = {'tokens_logits': outputs_class, 'bbox': outputs_bbox, 'latent': outputs_latent}
         return out
 
-        
+
 
     @torch.jit.unused
     def _set_aux_loss(self, outputs_class, outputs_coord):
