@@ -69,7 +69,10 @@ class DETR(nn.Module):
         for i in range(self.num_queries_out):
             feat2seq = []
             for j in range(self.num_queries_in):
-                net = nn.Linear(self.hidden_dim_outer, self.hidden_dim_inner)
+                net = nn.Sequential(
+                    nn.Linear(self.hidden_dim_outer, self.hidden_dim_inner),
+                    nn.ReLU()
+                )
                 feat2seq.append(net)
             feat2seq = nn.ModuleList(feat2seq)
             self.feat2seq_block.append(feat2seq)
