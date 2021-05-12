@@ -119,7 +119,7 @@ class DETR(nn.Module):
             h_outer_i = h_outer[:, i, :]
             src_inner = []
             for j in range(self.num_queries_in):
-                src_inner.append(self.feat2seq[i][j](h_outer_i))
+                src_inner.append(self.feat2seq_block[i][j](h_outer_i))
 
             src_inner = torch.stack(src_inner, 2) # (bs, hidden_dim_inner, num_queries_in)
             pos_inner = pos_enc_inner(src_inner)
