@@ -76,7 +76,7 @@ class DETR(nn.Module):
             #     )
             #     feat2seq.append(net)
             # feat2seq = nn.ModuleList(feat2seq)
-            self.feat2seq = nn.Sequential(
+            feat2seq = nn.Sequential(
                 RepeatSeq(self.num_queries_in),
                 nn.Conv1d(in_channels=self.hidden_dim_outer * self.num_queries_in,
                           out_channels=self.hidden_dim_inner * self.num_queries_in,
