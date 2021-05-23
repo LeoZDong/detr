@@ -79,8 +79,8 @@ class DETR(nn.Module):
             self.feat2seq = nn.Sequential(
                 RepeatSeq(self.num_queries_in),
                 nn.Conv1d(in_channels=self.hidden_dim_outer * self.num_queries_in,
-                          out_channels=detr.hidden_dim_inner * self.num_queries_in,
-                          groups=self.seq_len, kernel_size=1),
+                          out_channels=self.hidden_dim_inner * self.num_queries_in,
+                          groups=self.num_queries_in, kernel_size=1),
                 UnflattenSeq(self.num_queries_in),
                 nn.ReLU()
             )
