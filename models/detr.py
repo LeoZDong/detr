@@ -51,6 +51,7 @@ class DETR(nn.Module):
         self.bbox_dim_embed = MLP(self.hidden_dim_outer, self.hidden_dim_outer, 6, 3)
         self.latent_embed = MLP(self.hidden_dim_outer, self.hidden_dim_outer, latent_dim, 3)
         # Embedding for inner transformer
+        # NOTE: Add more layers for class embedding?
         self.class_embed = nn.Linear(self.hidden_dim_inner, num_classes + 1)
         # (currently only supports translation, so 3 dimensions)
         self.bbox_trans_embed = MLP(self.hidden_dim_inner, self.hidden_dim_inner, 3, 3)
@@ -67,14 +68,22 @@ class DETR(nn.Module):
         # Used to generate the source sequence of the inner transformer
         self.feat2seq_block = []
         for i in range(self.num_queries_out):
-            feat2seq = []
-            for j in range(self.num_queries_in):
-                net = nn.Sequential(
-                    nn.Linear(self.hidden_dim_outer, self.hidden_dim_inner),
-                    nn.ReLU()
-                )
-                feat2seq.append(net)
-            feat2seq = nn.ModuleList(feat2seq)
+            # feat2seq = []
+            # for j in range(self.num_queries_in):
+            #     net = nn.Sequential(
+            #         nn.Linear(self.hidden_dim_outer, self.hidden_dim_inner),
+            #         nn.ReLU()
+            #     )
+            #     feat2seq.append(net)
+            # feat2seq = nn.ModuleList(feat2seq)
+            self.feat2seq = nn.Sequential(
+                RepeatSeq(self.num_queries_in),
+                nn.Conv1d(in_channels=self.hidden_dim_outer * self.num_queries_in,
+                          out_channels=detr.hidden_dim_inner * self.num_queries_in,
+                          groups=self.seq_len, kernel_size=1),
+                UnflattenSeq(self.num_queries_in),
+                nn.ReLU()
+            )
             self.feat2seq_block.append(feat2seq)
 
         self.feat2seq_block = nn.ModuleList(self.feat2seq_block)
@@ -120,11 +129,13 @@ class DETR(nn.Module):
         for i in range(self.num_queries_out):
             # Extract source sequence for inner transformer from outer transformer's hidden layer
             h_outer_i = h_outer[:, i, :]
-            src_inner = []
-            for j in range(self.num_queries_in):
-                src_inner.append(self.feat2seq_block[i][j](h_outer_i))
+            # src_inner = []
+            # for j in range(self.num_queries_in):
+            #     src_inner.append(self.feat2seq_block[i][j](h_outer_i))
 
-            src_inner = torch.stack(src_inner, 2) # (bs, hidden_dim_inner, num_queries_in)
+            # src_inner = torch.stack(src_inner, 2) # (bs, hidden_dim_inner, num_queries_in)
+            src_inner = self.feat2seq_block[i](h_outer_i)
+
             pos_inner = pos_enc_inner(src_inner)
 
             # Pass through inner transformer
@@ -175,6 +186,60 @@ class DETR(nn.Module):
         # as a dict having both a Tensor and a list.
         return [{'pred_logits': a, 'pred_boxes': b}
                 for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
+
+class RepeatSeq(nn.Module):
+    """Repeat input (bsz, dim) to (bsz, dim * seq_len, 1)."""
+    def __init__(self, seq_len):
+        super(RepeatSeq, self).__init__()
+        self.seq_len = seq_len
+
+    def forward(self, x):
+        """
+        Args:
+            x (tensor): (bsz, dim)
+        Returns:
+            (tensor): (bsz, seq_len * dim, 1)
+        """
+        bsz = x.shape[0]
+        x = x.unsqueeze(2).repeat(1, 1, self.seq_len)  # (bsz, dim, seq_len)
+        return x.reshape(bsz, -1, 1) # (bsz, dim * seq_len, 1)
+
+class UnflattenSeq(nn.Module):
+    """Unflatten input (bsz, dim * seq_len, 1) to (bsz, dim, seq_len)."""
+    def __init__(self, seq_len):
+        super(UnflattenSeq, self).__init__()
+        self.seq_len = seq_len
+
+    def forward(self, x):
+        bsz = x.shape[0]
+        return x.unsqueeze(2).reshape(bsz, -1, self.seq_len)
+
+# class RepeatBlock(nn.Module):
+#     """Repeat input (bsz, seq_len, dim) to (bsz, dim * seq_len * block_len, 1)."""
+#     def __init__(block_len):
+#         self.block_len = block_len
+#
+#     def forward(self, x):
+#         """
+#         Args:
+#             x (tensor): (bsz, seq_len, dim)
+#         Returns:
+#             (tensor): (bsz, dim * seq_len * block_len, 1)
+#         """
+#         bsz = x.shape[0]
+#         x = x.unsqueeze(-1).repeat(1, 1, 1, self.block_len)  # (bsz, dim, seq_len, block_len)
+#         return x.reshape(bsz, -1, 1) # (bsz, dim * seq_len * block_len, 1)
+#
+# class UnflattenSeq(nn.Module):
+#     """Unflatten input (bsz, dim * seq_len * block_len, 1) to (bsz, seq_len, block_len, dim)."""
+#     def __init__(seq_len, block_len):
+#         self.seq_len = seq_len
+#         self.block_len = block_len
+#
+#     def forward(self, x):
+#         bsz = x.shape[0]
+#         return x.unsqueeze(-1).reshape(bsz, -1, self.seq_len)
+
 
 
 class SetCriterion(nn.Module):
