@@ -154,9 +154,10 @@ class DETR(nn.Module):
 
         # Postprocessing
         out = self.postprocess(outputs_bbox_dim, outputs_latent, outputs_bbox_trans, outputs_class)
+        out['rot'] = outputs_bbox_rot
 
         # Delete output not used for loss calculation for DDP to work
-        del out['latent']
+        # del out['latent']
         return out
 
         # out = {'tokens_logits': outputs_class[-1], 'bbox': outputs_coord[-1], 'latent': outputs_latent}
