@@ -57,7 +57,7 @@ class DETR(nn.Module):
         self.bbox_trans_embed = MLP(self.hidden_dim_inner, self.hidden_dim_inner, 3, 3)
         # Rotation for *points* inside the bounding box
         # This is for downstream usage only and should not change the bbox prediction
-        self.bbox_rot_embed = MLP(self.hidden_dim_inner, self.hidden_dim_inner, 3, 3)
+        self.bbox_rot_embed = MLP(self.hidden_dim_inner, self.hidden_dim_inner, 4, 3)
 
         # Query embedding for transformer
         self.query_embed_outer = nn.Embedding(num_queries_out, self.hidden_dim_outer)
