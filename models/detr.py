@@ -155,6 +155,7 @@ class DETR(nn.Module):
         # Postprocessing
         out = self.postprocess(outputs_bbox_dim, outputs_latent, outputs_bbox_trans, outputs_class)
         out['rot'] = outputs_bbox_rot
+        out['trans'] = outputs_bbox_trans
 
         # Delete output not used for loss calculation for DDP to work
         # del out['latent']
@@ -180,7 +181,9 @@ class DETR(nn.Module):
         # Translation along x, y, z axes
         outputs_bbox[:, :, :, :3] += outputs_bbox_trans
 
-        outputs_latent = torch.stack([outputs_latent] * self.num_queries_in, 2)
+        # outputs_latent = torch.stack([outputs_latent] * self.num_queries_in, 2)
+        # Just in case the above works weird with reference copies and gradient flows
+        outputs_latent = torch.stack([outputs_latent.clone() for _ in range(self.num_queries_in)], 2)
 
         out = {'tokens_logits': outputs_class, 'bbox': outputs_bbox, 'latent': outputs_latent}
         return out
