@@ -176,14 +176,16 @@ class DETR(nn.Module):
                 Currently, this serves as a present/absent binary classification.
         """
         # Apply step-wise transformation to predicted bounding box dimensions (TODO: make sure this stacking is alright without copy)
-        outputs_bbox = torch.stack([outputs_bbox_dim.clone for _ in range(self.num_queries_in)], 2)
+        # outputs_bbox = torch.stack([outputs_bbox_dim.clone for _ in range(self.num_queries_in)], 2)
+        outputs_bbox = outputs_bbox_dim.unsqueeze(2).repeat(1, 1, self.num_queries_in, 1)
         # Translation along x, y, z axes
         outputs_bbox[:, :, :, :3] += outputs_bbox_trans
 
         # outputs_latent = torch.stack([outputs_latent] * self.num_queries_in, 2)
         # Just in case the above works weird with reference copies and gradient flows
-        outputs_latent = torch.stack([outputs_latent.clone() for _ in range(self.num_queries_in)], 2)
-
+        # outputs_latent = torch.stack([outputs_latent.clone() for _ in range(self.num_queries_in)], 2)
+        outputs_latent = outputs_latent.unsqueeze(2).repeat(1, 1, self.num_queries_in, 1)
+        
         out = {'tokens_logits': outputs_class, 'bbox': outputs_bbox, 'latent': outputs_latent}
         return out
 
