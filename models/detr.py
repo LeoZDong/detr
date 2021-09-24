@@ -155,7 +155,6 @@ class DETR(nn.Module):
         # Postprocessing
         out = self.postprocess(outputs_bbox_dim, outputs_latent, outputs_bbox_trans, outputs_class)
         out['rot'] = outputs_bbox_rot
-        out['trans'] = outputs_bbox_trans
 
         # Delete output not used for loss calculation for DDP to work
         # del out['latent']
@@ -177,7 +176,7 @@ class DETR(nn.Module):
                 Currently, this serves as a present/absent binary classification.
         """
         # Apply step-wise transformation to predicted bounding box dimensions (TODO: make sure this stacking is alright without copy)
-        outputs_bbox = torch.stack([outputs_bbox_dim] * self.num_queries_in, 2)
+        outputs_bbox = torch.stack([outputs_bbox_dim.clone for _ in range(self.num_queries_in)], 2)
         # Translation along x, y, z axes
         outputs_bbox[:, :, :, :3] += outputs_bbox_trans
 
